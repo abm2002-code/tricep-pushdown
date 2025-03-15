@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediaPipe Pose Correction</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
+    <style>
+        body { text-align: center; font-family: Arial, sans-serif; }
+        video { display: none; }  /* Hide video element */
+        canvas { display: block; margin: auto; transform: scaleX(-1); }
+        #feedback { font-size: 20px; font-weight: bold; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<h2>Real-Time Form Correction</h2>
+<canvas id="canvas"></canvas>
+<p id="feedback">Waiting for pose data...</p>
+
+<audio id="audioBack" src="back_fixed_audio.mp3"></audio>
+<audio id="audioElbow" src="elbow_fixed_audio.mp3"></audio>
+<audio id="audioBoth" src="elbow_back_audio.mp3"></audio>
+
+<script>
+    const videoElement = document.createElement('video'); // Create video element dynamically
+    videoElement.setAttribute('autoplay', '');
+    videoElement.setAttribute('playsinline', '');
+    
+    const canvasElement = document.getElementById('canvas');
+    const feedbackElement = document.getElementById('feedback');
+    const ctx = canvasElement.getContext('2d');
+
+    // Load MediaPipe Pose
+    const pose = new Pose({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+
+    pose.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    pose.onResults(onResults);
+
+    // Set up the camera
+    const camera = new Camera(videoElement, {
+        onFrame: async () => { await pose.send({ image: videoElement }); },
+        width: 640,
+        height: 480
+    });
+    camera.start();
+
+    let backPositions = [];
+    let elbowPositions = [];
+    const frameWindow = 25;
+    const movementThreshold = 0.015;
+    let lastAudioTime = 0;
+    const audioDelay = 1000; // 1 second
+
+    function movingAverage(data, windowSize = 5) {
+        if (data.length < windowSize) return data.length ? data.reduce((a, b) => a + b) / data.length : 0;
+        return data.slice(-windowSize).reduce((a, b) => a + b) / windowSize;
+    }
+
+    function calculateStd(data) {
+        if (data.length < frameWindow) return 0;
+        const mean = movingAverage(data, data.length);
+        return Math.sqrt(data.slice(-frameWindow).reduce((sum, value) => sum + (value - mean) ** 2, 0) / frameWindow);
+    }
+
+    function playAudio(id) {
+        const currentTime = Date.now();
+        if (currentTime - lastAudioTime > audioDelay) {
+            document.getElementById(id).play();
+            lastAudioTime = currentTime;
+        }
+    }
+
+    function drawLandmarks(landmarks) {
+        for (let i = 0; i < landmarks.length; i++) {
+            const { x, y } = landmarks[i];
+            ctx.beginPath();
+            ctx.arc(x * canvasElement.width, y * canvasElement.height, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = "red";
+            ctx.fill();
+        }
+    }
+
+    function onResults(results) {
+        canvasElement.width = videoElement.videoWidth;
+        canvasElement.height = videoElement.videoHeight;
+        ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+        // Draw video frame on canvas
+        ctx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+
+        if (!results.poseLandmarks) {
+            feedbackElement.textContent = "No pose detected";
+            return;
+        }
+
+        const landmarks = results.poseLandmarks;
+        drawLandmarks(landmarks); // Draw keypoints on the body
+
+        // Extract relevant keypoints
+        const shoulder = landmarks[12]; // Right Shoulder
+        const hip = landmarks[24]; // Right Hip
+        const elbow = landmarks[14]; // Right Elbow
+
+        // Calculate average positions for back and elbow
+        const backY = (shoulder.y + hip.y) / 2.0;
+        const elbowY = elbow.y;
+
+        backPositions.push(backY);
+        elbowPositions.push(elbowY);
+
+        if (backPositions.length > frameWindow) backPositions.shift();
+        if (elbowPositions.length > frameWindow) elbowPositions.shift();
+
+        const backStd = calculateStd(backPositions);
+        const elbowStd = calculateStd(elbowPositions);
+
+        // Provide feedback based on detected movement
+        let feedback = "Good Form";
+        if (backStd > movementThreshold && elbowStd > movementThreshold) {
+            feedback = "Fix Both Your Back & Elbow!";
+            playAudio("audioBoth");
+        } else if (elbowStd > movementThreshold) {
+            feedback = "Fix Your Elbow!";
+            playAudio("audioElbow");
+        } else if (backStd > movementThreshold) {
+            feedback = "Fix Your Back!";
+            playAudio("audioBack");
+        }
+
+        feedbackElement.textContent = feedback;
+    }
+</script>
+
+</body>
+</html>
