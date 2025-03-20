@@ -8,51 +8,10 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
     <style>
-        body {
-            text-align: center;
-            font-family: Arial, sans-serif;
-            background-color: #121212;
-            color: white;
-            margin: 0;
-            overflow: hidden;
-        }
-        
-        video, canvas {
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            border-radius: 10px;
-            box-shadow: 0px 0px 10px rgba(255, 255, 255, 0.2);
-        }
-        
-        #warning {
-            position: absolute;
-            top: 10%;
-            left: 50%;
-            transform: translateX(-50%);
-            color: #ff4d4d;
-            font-size: 24px;
-            font-weight: bold;
-            background-color: rgba(0, 0, 0, 0.7);
-            padding: 10px 20px;
-            border-radius: 5px;
-            display: inline-block;
-        }
-        
-        #debug {
-            position: absolute;
-            bottom: 5%;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: rgba(0, 0, 0, 0.5);
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 14px;
-            text-align: left;
-            color: white;
-            white-space: pre-wrap;
-        }
+        body { text-align: center; font-family: Arial, sans-serif; }
+        video, canvas { position: absolute; left: 50%; transform: translateX(-50%); top: 10%; }
+        #warning { position: absolute; top: 5%; left: 50%; transform: translateX(-50%); color: red; font-size: 24px; font-weight: bold; }
+        #debug { position: absolute; top: 80%; left: 10%; color: white; font-size: 14px; text-align: left; }
     </style>
 </head>
 <body>
@@ -60,7 +19,6 @@
     <canvas id="canvas"></canvas>
     <div id="warning"></div>
     <div id="debug"></div>
-    
     <audio id="backAudio" src="back_fixed_audio.mp3" preload="auto"></audio>
     <audio id="elbowAudio" src="elbow_fixed_audio.mp3" preload="auto"></audio>
     
@@ -73,6 +31,7 @@
         const backAudio = document.getElementById('backAudio');
         const elbowAudio = document.getElementById('elbowAudio');
         
+        // Variables for tracking movement
         let lastElbowAngles = [];
         const frameWindow = 10;
         
@@ -96,7 +55,7 @@
             const angle = Math.acos(dotProduct / (magnitudeBA * magnitudeBC)) * (180 / Math.PI);
             return angle;
         }
-
+        
         function movingAverage(data, windowSize = 5) {
             if (data.length < windowSize) {
                 return data.length ? data.reduce((a, b) => a + b, 0) / data.length : 0;
@@ -110,45 +69,54 @@
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
             if (results.poseLandmarks) {
+                // Draw pose landmarks and connections
                 drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
                 drawLandmarks(ctx, results.poseLandmarks, { color: '#FF0000', lineWidth: 2 });
 
                 const landmarks = results.poseLandmarks;
-                const leftShoulder = landmarks[11];
-                const leftElbow = landmarks[13];
-                const leftWrist = landmarks[15];
-                const leftHip = landmarks[23];
-
-                const rightShoulder = landmarks[12];
-                const rightElbow = landmarks[14];
-                const rightWrist = landmarks[16];
-                const rightHip = landmarks[24];
-
+                
+                // Get key points for tricep pushdown analysis
+                const leftShoulder = landmarks[11]; // LEFT_SHOULDER
+                const leftElbow = landmarks[13]; // LEFT_ELBOW
+                const leftWrist = landmarks[15]; // LEFT_WRIST
+                const leftHip = landmarks[23]; // LEFT_HIP
+                
+                const rightShoulder = landmarks[12]; // RIGHT_SHOULDER
+                const rightElbow = landmarks[14]; // RIGHT_ELBOW
+                const rightWrist = landmarks[16]; // RIGHT_WRIST
+                const rightHip = landmarks[24]; // RIGHT_HIP
+                
+                // Calculate angles for form analysis
                 const leftElbowAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
                 const rightElbowAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
-
+                
+                // Calculate back angle (should be straight)
                 const backAngle = calculateAngle(
                     { x: leftShoulder.x, y: leftShoulder.y },
                     { x: leftHip.x, y: leftHip.y },
-                    { x: leftHip.x, y: leftHip.y + 0.1 }
+                    { x: leftHip.x, y: leftHip.y + 0.1 } // Point below hip for vertical reference
                 );
-
+                
+                // Store elbow angles for movement tracking
                 lastElbowAngles.push((leftElbowAngle + rightElbowAngle) / 2);
                 if (lastElbowAngles.length > frameWindow) {
                     lastElbowAngles.shift();
                 }
-
+                
                 const avgElbowAngle = movingAverage(lastElbowAngles);
-
+                
+                // Display angles
                 ctx.fillStyle = "white";
                 ctx.font = "18px Arial";
                 ctx.fillText(`Left Elbow Angle: ${Math.round(leftElbowAngle)}°`, 50, 50);
                 ctx.fillText(`Right Elbow Angle: ${Math.round(rightElbowAngle)}°`, 400, 50);
                 ctx.fillText(`Back Angle: ${Math.round(backAngle)}°`, 200, 80);
-
-                const elbowIssue = leftElbowAngle < 90 || rightElbowAngle < 90;
-                const backIssue = backAngle < 80 || backAngle > 100;
-
+                
+                // Check for form issues
+                const elbowIssue = leftElbowAngle < 90 || rightElbowAngle < 90; // Elbows should extend fully
+                const backIssue = backAngle < 80 || backAngle > 100; // Back should be straight
+                
+                // Handle warnings and audio feedback
                 if (backIssue && backAudio.paused) {
                     warningText.innerText = "Keep your back straight!";
                     backAudio.play();
@@ -160,8 +128,9 @@
                 else if (!backIssue && !elbowIssue) {
                     warningText.innerText = "";
                 }
-
-                debugText.innerText = `Avg Elbow Angle: ${Math.round(avgElbowAngle)}°\nBack Issue: ${backIssue}\nElbow Issue: ${elbowIssue}`;
+                
+                // Debug information
+                debugText.innerText = `Avg Elbow Angle: ${Math.round(avgElbowAngle)}\nBack Issue: ${backIssue}\nElbow Issue: ${elbowIssue}`;
             }
         });
 
