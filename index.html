@@ -295,38 +295,48 @@
       }, 2000);
     }
 
-   function beginWorkout() {
-  isExercising = true;
-  mistakeCount = 0;
-  isInMistakeState = false;
+    function beginWorkout() {
+      isExercising = true;
+      repCount = 0;
+      mistakeCount = 0;
+      isInMistakeState = false;
+      lastElbowAngles = [];
+      isExtended = false;
 
-  // Update UI
-  startButton.classList.add('hidden');
-  stopButton.classList.remove('hidden');
-  resetButton.classList.add('hidden');
-  startButton.disabled = false;
+      // Update UI
+      startButton.classList.add('hidden');
+      stopButton.classList.remove('hidden');
+      resetButton.classList.add('hidden');
+      startButton.disabled = false;
+      warningText.innerText = "";
 
-  // Start timer
-  exerciseStartTime = Date.now();
-  exerciseTimer = setInterval(updateExerciseTime, 1000);
-}
-
-   function startExercise() {
-  let countdown = 3;
-  exerciseTimeElement.textContent = `Starting in ${countdown}`;
-  startButton.disabled = true;
-
-  const countdownInterval = setInterval(() => {
-    countdown--;
-    if (countdown > 0) {
-      exerciseTimeElement.textContent = `Starting in ${countdown}`;
-    } else {
-      clearInterval(countdownInterval);
-      beginWorkout();
+      // Start timer
+      exerciseStartTime = Date.now();
+      exerciseTimer = setInterval(updateExerciseTime, 1000);
+      
+      if (recognition) {
+        showVoiceToast('Workout started');
+      }
     }
-  }, 1000);
-}
 
+    function startExercise() {
+      let countdown = 3;
+      exerciseTimeElement.textContent = `Starting in ${countdown}`;
+      startButton.disabled = true;
+
+      const countdownInterval = setInterval(() => {
+        countdown--;
+        if (countdown > 0) {
+          exerciseTimeElement.textContent = `Starting in ${countdown}`;
+        } else {
+          exerciseTimeElement.textContent = `GO!`;
+          setTimeout(() => {
+            clearInterval(countdownInterval);
+            beginWorkout();
+          }, 500); // Short delay to show "GO!"
+        }
+      }, 1000);
+    }
 
     function stopExercise() {
       isExercising = false;
@@ -346,6 +356,7 @@
     function resetExercise() {
       resetButton.classList.add('hidden');
       startButton.classList.remove('hidden');
+      startButton.disabled = false;
       exerciseTimeElement.textContent = "00:00";
       warningText.innerText = "";
     }
